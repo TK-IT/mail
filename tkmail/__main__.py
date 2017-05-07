@@ -1,6 +1,5 @@
 import logging
 import argparse
-import asyncore
 
 from emailtunnel import logger
 from tkmail.server import TKForwarder
@@ -43,13 +42,11 @@ def main():
         receiver_host, receiver_port, relay_host, relay_port,
         year=args.gf)
     try:
-        asyncore.loop(timeout=0.1, use_poll=True)
-    except KeyboardInterrupt:
-        logger.info('TKForwarder exited via KeyboardInterrupt')
-    except:
-        logger.exception('TKForwarder exited via exception')
+        server.run()
+    except Exception as exn:
+        logger.exception('Uncaught exception in TKForwarder.run')
     else:
-        logger.error('TKForwarder exited via asyncore.loop returning')
+        logger.info('TKForwarder exiting')
 
 
 if __name__ == "__main__":

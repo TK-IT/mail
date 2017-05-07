@@ -2,8 +2,8 @@
 
 ### Introduction
 
-`emailtunnel` is a small Python 3 framework that uses the `smtpd`, `smtplib`
-and `email` modules in the Python standard library to implement simple mailing
+`emailtunnel` is a small Python 3 framework that uses the `smtplib` and `email`
+standard library modules along with `aiosmtpd` to implement simple mailing
 list forwarding.
 
 The user must supply a function that maps symbolic recipient addresses on their
@@ -48,7 +48,7 @@ implementing the following classes:
 * InvalidRecipient (exception)
 * Message (encapsulating an instance of `email.message.Message`)
 * Envelope (encapsulating a Message, a recipient and a sender)
-* SMTPReceiver (abstract subclass of `smtpd.SMTPServer`)
+* SMTPReceiver (abstract base class utilizing `aiosmtpd`)
 * LoggingReceiver (simple implementation of SMTPReceiver)
 * RelayMixin (mixin providing envelope delivery to a relay)
 * SMTPForwarder (subclass of SMTPReceiver)
@@ -82,14 +82,15 @@ feeds it test messages and checks the relayed messages for correctness.
 
 ### SMTPForwarder logic
 
-The main entry point from the `smtpd` module is `SMTPReceiver.process_message`.
+When an SMTP client connects and sends an SMTP envelope,
+the method `SMTPReceiver.process_message` is invoked by `emailtunnel`.
 First, the message data is stored in an instance of `Message`,
 which performs a sanity roundtrip parsing check to make sure that
 `data == str(Message(data))` modulo trailing whitespace.
 
 Then, the envelope is passed to `handle_envelope`,
 which is implemented in a subclass (such as SMTPForwarder).
-If `handle_envelope` returns None, `smtpd` assumes that the envelope was
+If `handle_envelope` returns None, `emailtunnel` assumes that the envelope was
 successfully delivered.
 Otherwise, it must return a string, which is returned to the SMTP remote peer.
 If an exception occurs in `handle_envelope`, SMTP error 451 is returned to the

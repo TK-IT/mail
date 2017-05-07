@@ -1,10 +1,12 @@
 """Lightweight email forwarding framework.
 
-The emailtunnel module depends heavily on the standard library classes
-smtpd.SMTPServer and email.message.Message (and its subclasses).
+The emailtunnel module uses the standard library module 'email'
+to parse and represent email messages, and the aiosmtpd module
+to accept messages via SMTP, and the standard library smtplib module
+to forward messages via SMTP.
 
 The emailtunnel module exports the classes:
-SMTPReceiver -- implementation of SMTPServer that handles errors in processing
+SMTPReceiver -- an SMTP server that handles errors in processing
 RelayMixin -- mixin providing a `deliver` method to send email
 SMTPForwarder -- implementation of SMTPReceiver that forwards emails
 LoggingReceiver -- simple implementation of SMTPReceiver that logs via print()
@@ -24,11 +26,10 @@ emailtunnel.send -- simple construction and sending of email
 from io import BytesIO
 import os
 import re
-import sys
 import copy
+import time
 import logging
 import datetime
-import threading
 
 import email
 import email.utils
@@ -38,8 +39,10 @@ from email.header import Header
 from email.charset import QP
 import email.message
 
-import smtpd
 import smtplib
+
+import asyncio
+import aiosmtpd.controller
 
 
 logger = logging.getLogger('emailtunnel')
@@ -293,82 +296,50 @@ class Envelope(object):
         return result
 
 
-class ResilientSMTPChannel(smtpd.SMTPChannel):
-    """smtpd.SMTPChannel is not encoding agnostic -- it requires UTF-8.
-    As a workaround, we interpret the bytes as latin1,
-    since bytes.decode('latin1') never fails.
-    This "string" is actually a Python 2-style bytestring,
-    but the smtpd module should not care -- it blissfully thinks that
-    everything is nice UTF-8.
-    """
+class Handler:
+    def __init__(self, smtp_receiver: 'SMTPReceiver'):
+        self.smtp_receiver = smtp_receiver
 
-    def collect_incoming_data(self, data):
-        str_data = data.decode('latin1')
-
-        # str_data.encode('utf-8').decode('utf-8') will surely not raise
-        # a UnicodeDecodeError in SMTPChannel.collect_incoming_data.
-        super(ResilientSMTPChannel, self).collect_incoming_data(
-            str_data.encode('utf-8'))
-
-    def log_info(self, message, type_='info'):
-        try:
-            logger = getattr(logging, type_)
-        except AttributeError:
-            logger = logging.info
-
-        logger(message)
-
-    def handle_error(self):
-        # The implementation of recv does not catch TimeoutError, causing the
-        # default handle_error to report "uncaptured python exception".
-        # This is misleading to the user as it sounds like an application bug,
-        # when in fact it is caused by the remote peer not responding.
-        exc_value = sys.exc_info()[1]
-        if isinstance(exc_value, TimeoutError):
-            logging.error("recv timed out; closing ResilientSMTPChannel")
-            self.close()
+    @asyncio.coroutine
+    def handle_DATA(self, server, session, envelope):
+        if isinstance(envelope.content, str):
+            data = envelope.original_content
         else:
-            super(ResilientSMTPChannel, self).handle_error()
+            data = envelope.content
+        status = self.smtp_receiver.process_message(
+            session.peer[:2],
+            envelope.mail_from, envelope.rcpt_tos, data)
+        return '250 OK' if status is None else status
 
 
-class SMTPReceiver(smtpd.SMTPServer):
-    channel_class = ResilientSMTPChannel
-
+class SMTPReceiver:
     def __init__(self, host, port):
         self.host = host
         self.port = port
-        kwargs = {}
-        if sys.version_info >= (3, 5):
-            # 3.4: No decode_data
-            # 3.5: decode_data=True default (3.4 compatible)
-            # 3.6: decode_data=False default (incompatible!)
-            kwargs['decode_data'] = True
-        super(SMTPReceiver, self).__init__((self.host, self.port), None,
-                                           **kwargs)
-        self.startup_log()
         self.thread = None
+        self.ready_timeout = 1.0
+        self.thread_exception = None
+        self.controller = aiosmtpd.controller.Controller(
+            Handler(self), hostname=host, port=port)
 
     def startup_log(self):
         logger.debug('Initialize SMTPReceiver on %s:%s'
                       % (self.host, self.port))
 
-    def start(self, daemon=True):
-        assert self.thread is None, 'SMTP daemon already running'
-        import asyncore
-        ready_event = threading.Event()
-        self.thread = threading.Thread(
-            target=asyncore.loop,
-            kwargs={'timeout': 0.1, 'use_poll': True})
-        self.thread.daemon = daemon
-        self.thread.start()
-        # Wait a while until the server is responding.
-        import time
-        time.sleep(0.1)
+    def run(self):
+        self.start()
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
+        self.stop()
+
+    def start(self):
+        self.controller.start()
 
     def stop(self):
-        import asyncore
-        asyncore.close_all()
-        self.thread.join()
+        self.controller.stop()
 
     def log_receipt(self, peer, envelope):
         ipaddr, port = peer
@@ -397,19 +368,13 @@ class SMTPReceiver(smtpd.SMTPServer):
         logger.info("Subject: %r From: %s %s%s" %
                     (str(message.subject), sender, recipients, source))
 
-    def process_message(self, peer, mailfrom, rcpttos, str_data):
-        """Overrides SMTPServer.process_message.
-
+    def process_message(self, peer, mailfrom, rcpttos, data):
+        """
         peer is a tuple of (ipaddr, port).
         mailfrom is the raw sender address.
         rcpttos is a list of raw recipient addresses.
         data is the full text of the message.
-
-        ResilientSMTPChannel packs the bytestring into a Python 2-style
-        bytestring, which we unpack here.
         """
-
-        data = str_data.encode('latin1')
 
         try:
             ipaddr, port = peer
@@ -418,7 +383,7 @@ class SMTPReceiver(smtpd.SMTPServer):
         except:
             logger.exception("Could not construct envelope!")
             try:
-                self.handle_error(None, str_data)
+                self.handle_error(None, data.decode('latin1'))
             except:
                 logger.exception("handle_error(None) threw exception")
             return '451 Requested action aborted: error in processing'
@@ -429,7 +394,7 @@ class SMTPReceiver(smtpd.SMTPServer):
         except:
             logger.exception("Could not handle envelope!")
             try:
-                self.handle_error(envelope, str_data)
+                self.handle_error(envelope, data.decode('latin1'))
             except:
                 logger.exception("handle_error threw exception")
 

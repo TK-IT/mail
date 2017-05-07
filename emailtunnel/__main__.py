@@ -1,7 +1,5 @@
 import logging
 import argparse
-import asyncore
-import threading
 
 from emailtunnel import LoggingReceiver, SMTPForwarder
 
@@ -48,10 +46,7 @@ def main():
             receiver_host, receiver_port,
             relay_host, relay_port)
 
-    poller = threading.Thread(
-        target=asyncore.loop,
-        kwargs={'timeout': 0.1, 'use_poll': True})
-    poller.start()
+    server.run()
 
 
 if __name__ == "__main__":

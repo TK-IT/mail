@@ -1,8 +1,6 @@
 import time
 import logging
 import smtplib
-import asyncore
-import threading
 
 import email.header
 
@@ -357,11 +355,7 @@ def main():
     # dumper = DumpReceiver('127.0.0.1', dumper_port)
     relayer.deliver = deliver_local
     relayer.store_failed_envelope = store_failed_local
-
-    poller = threading.Thread(
-        target=asyncore.loop,
-        kwargs={'timeout': 0.1, 'use_poll': True})
-    poller.start()
+    relayer.start()
 
     tests = [
         SameRecipientTest('FORM13', 'FORM2013', 'FORM1314', 'gFORM14'),
@@ -438,7 +432,8 @@ def main():
     else:
         logger.info("All tests succeeded")
 
-    logger.info("tkmail.test finished; you may Ctrl-C")
+    logger.info("tkmail.test finished")
+    relayer.stop()
 
 
 if __name__ == "__main__":
