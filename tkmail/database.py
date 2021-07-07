@@ -29,12 +29,12 @@ class Database(object):
 
     def get_email_addresses(self, id_list):
         id_string = ','.join(str(each) for each in id_list)
-        return self._fetchall("""
-            SELECT `email` FROM `idm_profile`
+        return dict(self._fetchall("""
+            SELECT `id`, `email` FROM `idm_profile`
             WHERE `id` IN (%s)
             AND `allow_direct_email` = TRUE
             AND `email` != ""
-            """, id_string, column=0)
+            """, id_string))
 
     def get_admin_emails(self):
         return self._fetchall("""
