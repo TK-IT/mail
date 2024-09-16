@@ -72,38 +72,36 @@ def get_admin_emails():
     return email_addresses
 
 
-def translate_recipient(year, name, list_ids=False):
+def translate_recipient(year, name):
     """Translate recipient `name` in GF year `year`.
 
     >>> translate_recipient(2010, "K3FORM")
-    ["mathiasrav@gmail.com"]
+    [("mathiasrav@...", "BESTFU2013")]
 
     >>> translate_recipient(2010, "GFORM14")
-    ["mathiasrav@gmail.com"]
+    [("mathiasrav@...", "BESTFU2013")]
 
     >>> translate_recipient(2010, "BEST2013")
-    ["mathiasrav@gmail.com", ...]
+    [("mathiasrav@...", "BESTFU2013"), ...]
 
     >>> translate_recipient(2006, 'FUAA')
-    ['sidse...']
+    [('sidse...', "BESTFU2006")]
 
     >>> translate_recipient(2011, 'FUIØ')
-    ['...@post.au.dk']
+    [('...@post.au.dk', "BESTFU2011")]
 
     >>> translate_recipient(2011, 'FUIOE')
-    ['...@post.au.dk']
+    [('...@post.au.dk', "BESTFU2011")]
     """
 
     name = name.replace('$', 'S')  # KA$$ -> KASS hack
     db = tkmail.database.Database()
-    recipient_ids, origin = parse_recipient(name.upper(), db, year)
-    assert isinstance(recipient_ids, list) and isinstance(origin, list)
-    assert len(recipient_ids) == len(origin)
+    recipients = parse_recipient(name.upper(), db, year)
+    recipient_ids = [recipient_id for recipient_id, origin in recipients]
     email_addresses = db.get_email_addresses(recipient_ids)
-    if list_ids:
-        return email_addresses, dict(zip(email_addresses, origin))
-    else:
-        return email_addresses
+    return [
+        (email_addresses[recipient_id], origin) for recipient_id, origin in recipients
+    ]
 
 
 def parse_recipient(recipient, db, current_period):
@@ -140,7 +138,7 @@ def parse_recipient(recipient, db, current_period):
     recipient_ids = sorted(recipient_ids)
     if not recipient_ids:
         raise InvalidRecipient(recipient)
-    return recipient_ids, [origin[r] for r in recipient_ids]
+    return [(r, origin[r]) for r in recipient_ids]
 
 
 def parse_alias_group(alias, db, current_period):
