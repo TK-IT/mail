@@ -290,15 +290,18 @@ class TKForwarder(SMTPForwarder, MailholeRelayMixin):
 
     def translate_recipient(self, rcptto):
         name, domain = rcptto.split('@')
-        recipients, origin = tkmail.address.translate_recipient(
-            self.year, name, list_ids=True)
+        recipients = tkmail.address.translate_recipient(self.year, name)
         if not recipients:
             logger.info("%s resolved to the empty list", name)
             raise InvalidRecipient(rcptto)
-        recipients.sort(key=lambda r: origin[r])
-        group_iter = itertools.groupby(recipients, key=lambda r: origin[r])
-        groups = [RecipientGroup(origin=o, recipients=frozenset(group))
-                  for o, group in group_iter]
+        recipients.sort(key=lambda r: r[1])
+        group_iter = itertools.groupby(recipients, key=lambda r: r[1])
+        groups = []
+        for origin, group in group_iter:
+            email_addresses = [email_address for email_address, origin in group]
+            groups.append(
+                RecipientGroup(origin=origin, recipients=frozenset(email_addresses))
+            )
         return groups
 
     def get_group_recipients(self, group):
