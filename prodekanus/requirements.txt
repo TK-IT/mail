@@ -1,6 +1,6 @@
 aiosmtpd==1.1
 atpublic==0.5
-certifi==2017.7.27.1
+certifi==2022.12.7
 chardet==3.0.4
 dmarc-policy-parser==0.1
 emailtunnel==0.2
