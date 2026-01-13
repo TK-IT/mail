@@ -2,3 +2,4 @@ git+https://github.com/TK-IT/emailtunnel.git#egg=emailtunnel
 mysqlclient
 requests
 git+https://github.com/Mortal/dmarc_policy_parser.git#egg=dmarc_policy_parser
+urllib3>=2.6.3 # not directly required, pinned by Snyk to avoid a vulnerability
